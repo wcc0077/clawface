@@ -1,4 +1,4 @@
-import type { Gateway, GatewayError, GatewayStatus } from "@openclaw/web-domain";
+import type { Gateway, GatewayError, GatewayStatus, SessionRepository, SessionKey, Message } from "@openclaw/web-domain";
 import { BehaviorSubject, type Observable } from "@openclaw/web-domain";
 import type { GatewayConnectionService } from "@openclaw/web-domain";
 import { serializeRequest, deserializeFrame, type RequestFrame } from "./protocol";
@@ -133,6 +133,7 @@ export class WebSocketGatewayConnection implements GatewayConnectionService {
     { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }
   >();
   private pairingPollTimer: ReturnType<typeof setTimeout> | null = null;
+  private sessionRepo: SessionRepository | null = null;
 
   // 设备身份缓存
   private deviceIdentity: Promise<DeviceIdentity> | null = null;
@@ -155,6 +156,224 @@ export class WebSocketGatewayConnection implements GatewayConnectionService {
       this.deviceIdentity = getOrCreateDeviceIdentity();
     }
     return this.deviceIdentity;
+  }
+
+  /**
+   * 设置 Session Repository，用于保存接收到的消息
+   */
+  setSessionRepository(repo: SessionRepository): void {
+    this.sessionRepo = repo;
+  }
+
+  /**
+   * 处理 chat.message 事件，自动保存消息到 SessionRepository
+   */
+  private async handleChatMessage(payload: unknown): Promise<void> {
+    const payloadObj = payload as Record<string, unknown>;
+
+    if (!this.sessionRepo) {
+      console.warn('[WebSocketGatewayConnection] SessionRepository not set, cannot save message');
+      return;
+    }
+
+    try {
+      // 检查是否是流式消息片段 - 使用 state 字段判断 (delta/final)
+      const state = payloadObj.state as string | undefined;
+      const runId = payloadObj.runId as string | undefined;
+      const sessionKeyStr = payloadObj.sessionKey as string | undefined;
+
+      // state 为 'delta' 或 'final' 且存在 runId 时，使用流式消息处理
+      if (runId && sessionKeyStr && (state === 'delta' || state === 'final')) {
+        await this.handleStreamingMessage(payloadObj, runId);
+        return;
+      }
+
+      // 非流式消息处理
+      await this.handleCompleteMessage(payloadObj);
+
+    } catch (err) {
+      console.error('[WebSocketGatewayConnection] Failed to handle chat message:', err);
+    }
+  }
+
+  /**
+   * 处理流式消息片段
+   */
+  private async handleStreamingMessage(
+    payloadObj: Record<string, unknown>,
+    runId: string
+  ): Promise<void> {
+    if (!this.sessionRepo) {
+      console.warn('[WebSocketGatewayConnection] SessionRepository not set for streaming message');
+      return;
+    }
+
+    const sessionKey = this.parseSessionKey(payloadObj.sessionKey as string);
+
+    // 获取现有 session
+    const session = await this.sessionRepo.findByKey(sessionKey);
+    if (!session) {
+      console.warn('[WebSocketGatewayConnection] Session not found for streaming message');
+      return;
+    }
+
+    // 从 payloadObj.message 中获取实际的消息数据
+    const messageObj = payloadObj.message as Record<string, unknown> || {};
+
+    // 查找是否已有同一条消息 (使用 runId 作为 id)
+    const existingMessageIndex = session.messages.findIndex(msg => msg.id === runId);
+
+    // 解析消息内容 - 从 message 字段获取
+    const content = messageObj.content as unknown[] || [];
+    const newText = Array.isArray(content)
+      ? content.map(c => (c as Record<string, unknown>).text as string).filter(Boolean).join('')
+      : '';
+
+    if (existingMessageIndex >= 0 && newText) {
+      // 更新现有消息 - 追加内容
+      const existingMsg = session.messages[existingMessageIndex];
+      const existingText = existingMsg.content.find(c => c.type === 'text')?.text || '';
+
+      session.messages[existingMessageIndex] = {
+        ...existingMsg,
+        content: [{ type: 'text', text: existingText + newText }],
+        timestamp: Date.now(),
+      };
+    } else if (newText) {
+      // 创建新消息
+      const message: Message = {
+        id: runId,
+        sessionId: sessionKey,
+        role: (messageObj.role as 'user' | 'assistant' | 'system') || 'assistant',
+        content: [{ type: 'text', text: newText }],
+        timestamp: Date.now(),
+      };
+
+      session.messages = [...session.messages, message];
+    }
+
+    // 保存更新
+    session.updatedAt = Date.now();
+    await this.sessionRepo.save(session);
+
+    // 通知观察者
+    const keyStr = `${sessionKey.gatewayId}:${sessionKey.agentId}:${sessionKey.channelId}`;
+    const subject = (this.sessionRepo as any).messageSubjects?.get(keyStr);
+    if (subject) {
+      subject.next(session.messages);
+    }
+  }
+
+  /**
+   * 处理完整消息
+   */
+  private async handleCompleteMessage(payloadObj: Record<string, unknown>): Promise<void> {
+    if (!this.sessionRepo) {
+      console.warn('[WebSocketGatewayConnection] SessionRepository not set for complete message');
+      return;
+    }
+
+    let sessionKey: SessionKey;
+    let messageData: { id?: string; role?: string; content?: unknown[]; timestamp?: number };
+
+    if (payloadObj.sessionKey && payloadObj.message) {
+      // 格式 1
+      sessionKey = this.parseSessionKey(payloadObj.sessionKey as string);
+      messageData = payloadObj.message as { id?: string; role?: string; content?: unknown[]; timestamp?: number };
+    } else if (payloadObj.sessionId) {
+      // 格式 2
+      sessionKey = this.parseSessionKey(payloadObj.sessionId as string);
+      messageData = payloadObj as { id?: string; role?: string; content?: unknown[]; timestamp?: number };
+    } else if (payloadObj.gatewayId && payloadObj.agentId && payloadObj.channelId) {
+      // 格式 3
+      sessionKey = {
+        gatewayId: payloadObj.gatewayId as string,
+        agentId: payloadObj.agentId as string,
+        channelId: payloadObj.channelId as string,
+      };
+      messageData = payloadObj as { id?: string; role?: string; content?: unknown[]; timestamp?: number };
+    } else {
+      console.warn('[WebSocketGatewayConnection] Cannot parse chat message payload:', payloadObj);
+      return;
+    }
+
+    if (!sessionKey || !messageData) {
+      console.warn('[WebSocketGatewayConnection] Invalid chat message payload:', payloadObj);
+      return;
+    }
+
+    const message: Message = {
+      id: messageData.id || `${Date.now()}-${Math.random()}`,
+      sessionId: sessionKey,
+      role: (messageData.role as 'user' | 'assistant' | 'system') || 'assistant',
+      content: this.parseMessageContent(messageData.content),
+      timestamp: messageData.timestamp || Date.now(),
+    };
+
+    console.log('[WebSocketGatewayConnection] Received chat message:', message);
+
+    // 保存消息
+    if ((this.sessionRepo as any).addMessage) {
+      await (this.sessionRepo as any).addMessage(sessionKey, message);
+      console.log('[WebSocketGatewayConnection] Message saved to repository');
+    }
+  }
+
+  /**
+   * 解析 session key 字符串
+   */
+  private parseSessionKey(sessionKeyStr: string): SessionKey {
+    const keyParts = sessionKeyStr.split(':');
+
+    // 支持 5 段格式：agent:main:gatewayId:agentId:channelId
+    if (keyParts.length === 5) {
+      return {
+        gatewayId: keyParts[2],
+        agentId: keyParts[3],
+        channelId: keyParts[4],
+      };
+    }
+
+    // 支持 3 段格式：gatewayId:agentId:channelId
+    if (keyParts.length === 3) {
+      return {
+        gatewayId: keyParts[0],
+        agentId: keyParts[1],
+        channelId: keyParts[2],
+      };
+    }
+
+    console.warn('[WebSocketGatewayConnection] Invalid session key format:', sessionKeyStr);
+    return { gatewayId: '', agentId: '', channelId: '' };
+  }
+
+  /**
+   * 解析消息内容
+   */
+  private parseMessageContent(content: unknown[] | undefined): Array<{ type: 'text' | 'image' | 'file'; text?: string; url?: string; mimeType?: string }> {
+    if (!content || !Array.isArray(content) || content.length === 0) {
+      return [{ type: 'text', text: '' }];
+    }
+
+    return content.map((item) => {
+      if (typeof item === 'string') {
+        return { type: 'text', text: item };
+      }
+      if (item && typeof item === 'object' && 'type' in item) {
+        const typedItem = item as Record<string, unknown>;
+        if (typedItem.type === 'image' || typedItem.type === 'file') {
+          return {
+            type: typedItem.type as 'image' | 'file',
+            url: typedItem.url as string,
+            mimeType: typedItem.mimeType as string,
+          };
+        }
+        if (typedItem.type === 'text') {
+          return { type: 'text', text: typedItem.text as string };
+        }
+      }
+      return { type: 'text', text: String(item) };
+    });
   }
 
   async connect(gateway: Gateway): Promise<void> {
@@ -189,6 +408,11 @@ export class WebSocketGatewayConnection implements GatewayConnectionService {
             await this.handleConnectChallenge(frame.payload as { nonce?: unknown }, gateway.auth, identity);
             return;
           }
+          // 处理 chat.message 或 chat 事件
+          if (frame.type === "event" && (frame.event === "chat.message" || frame.event === "chat")) {
+            await this.handleChatMessage(frame.payload);
+            return;
+          }
           this.handleFrame(frame);
         }
       };
@@ -209,7 +433,7 @@ export class WebSocketGatewayConnection implements GatewayConnectionService {
 
         // 配对请求关闭码 1008
         if (event.code === 1008) {
-          const reason = event.reason || "";
+          console.log('[WebSocketGatewayConnection] Connection closed due to pairing rejection:', event.reason || "");
         }
       };
 
@@ -251,11 +475,15 @@ export class WebSocketGatewayConnection implements GatewayConnectionService {
   }
 
   async request<T>(method: string, params: unknown): Promise<T> {
+    console.log('[WebSocketGatewayConnection] request called:', { method, params });
+
     if (!this.ws || this.statusSubject.value !== "connected") {
+      console.error('[WebSocketGatewayConnection] Not connected to gateway. status=', this.statusSubject.value, 'ws=', this.ws);
       throw new Error("Not connected to gateway");
     }
 
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    console.log('[WebSocketGatewayConnection] Sending request:', { id, method, params });
 
     return new Promise<T>((resolve, reject) => {
       const frame: RequestFrame = {
@@ -266,6 +494,7 @@ export class WebSocketGatewayConnection implements GatewayConnectionService {
       };
 
       this.ws?.send(serializeRequest(frame));
+      console.log('[WebSocketGatewayConnection] Frame sent via WebSocket.send:', frame);
 
       const timer = setTimeout(() => {
         this.pendingRequests.delete(id);
@@ -409,10 +638,10 @@ export class WebSocketGatewayConnection implements GatewayConnectionService {
     }, 30000);
 
     this.pendingRequests.set(id, {
-      resolve: (value) => {
+      resolve: (_value) => {
         clearTimeout(timer);
       },
-      reject: (err) => {
+      reject: (_err) => {
         clearTimeout(timer);
         // 配对错误已经在 handleFrame 中处理
       },
@@ -438,14 +667,14 @@ export class WebSocketGatewayConnection implements GatewayConnectionService {
    * 轮询配对请求状态
    * 当配对批准后，自动使用 token 重新连接
    */
-  private startPairingPoll(requestId: string, _deviceId: string): void {
+  private startPairingPoll(_requestId: string, _deviceId: string): void {
     // 清除之前的轮询
     this.stopPairingPoll();
 
     const poll = async () => {
       try {
         // 使用 device.pair.list 获取配对状态
-        const result = await this.request<{ pending: { requestId: string }[]; paired: { deviceId: string; tokens?: Record<string, unknown> }[] }>("device.pair.list", {});
+        const result = await this.request<{ pending: { requestId: string }[]; paired: { deviceId: string; tokens?: Record<string, { token?: string }> }[] }>("device.pair.list", {});
 
         // 检查配对请求是否已批准
         const approved = result.paired.find((d) => d.tokens && Object.keys(d.tokens).length > 0);
@@ -455,7 +684,8 @@ export class WebSocketGatewayConnection implements GatewayConnectionService {
           this.stopPairingPoll();
 
           // 获取 token - 从 approved 设备中获取
-          const token = approved.tokens ? Object.values(approved.tokens)[0]?.token : undefined;
+          const tokenEntry = approved.tokens ? Object.values(approved.tokens)[0] : undefined;
+          const token = tokenEntry?.token;
 
           if (token && this.currentGateway) {
             // 更新 gateway 的 token

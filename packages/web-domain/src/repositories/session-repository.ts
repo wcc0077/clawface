@@ -29,4 +29,9 @@ export interface SessionRepository {
    * 观察 Session 消息变化
    */
   observeMessages(key: SessionKey): Observable<Message[]>;
+
+  /**
+   * 添加消息到 Session（用于接收消息）
+   */
+  addMessage?(key: SessionKey, message: Message): Promise<void>;
 }

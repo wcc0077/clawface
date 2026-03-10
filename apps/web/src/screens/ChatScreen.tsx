@@ -4,8 +4,12 @@ import BubbleList from "@ant-design/x/es/bubble/BubbleList";
 import Sender from "@ant-design/x/es/sender";
 import type { SenderProps } from "@ant-design/x/es/sender";
 import type { BubbleListProps } from "@ant-design/x/es/bubble/interface";
+import { XMarkdown } from "@ant-design/x-markdown";
+import SyntaxHighlighter from "react-syntax-highlighter";
+import { atelierHeathLight } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import { useSessionMessages, useExecuteTool, useGatewayStatus } from "../hooks";
 import type { SessionKey, Message } from "@openclaw/web-domain";
+import "katex/dist/katex.min.css";
 import "./ChatScreen.css";
 
 function ChatScreen() {
@@ -13,6 +17,7 @@ function ChatScreen() {
   const { currentGateway } = useGatewayStatus();
   const [currentSessionKey, setCurrentSessionKey] = useState<SessionKey | null>(null);
   const [sending, setSending] = useState(false);
+  const [autoClear, setAutoClear] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Load current session from localStorage
@@ -33,22 +38,30 @@ function ChatScreen() {
   const { messages, loading } = useSessionMessages(currentSessionKey);
 
   const handleSend: SenderProps["onSubmit"] = async (data) => {
-    if (!currentSessionKey) return;
-    setSending(true);
-
-    const text = typeof data === "string" ? data : (data as { text?: string }).text || "";
-    if (!text.trim()) {
-      setSending(false);
+    if (!currentSessionKey) {
+      console.warn('[ChatScreen] No session key, cannot send message');
+      alert('No session selected. Please create or select a session first.');
       return;
     }
+
+    const text = typeof data === "string" ? data : (data as { text?: string }).text || "";
+
+    if (!text.trim()) {
+      return;
+    }
+
+    setSending(true);
 
     try {
       await executeTool("session_send", {
         text: text.trim(),
         sessionId: serializeSessionKey(currentSessionKey)
       });
+      // Clear input after successful send
+      setAutoClear(prev => !prev);
     } catch (error) {
-      console.error("Failed to send message:", error);
+      console.error("[ChatScreen] Failed to send message:", error);
+      alert(`Failed to send message: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setSending(false);
     }
@@ -61,7 +74,7 @@ function ChatScreen() {
   const handleNewSession = async () => {
     try {
       // 创建新会话
-      const result: unknown = await executeTool("session_list", { limit: 1 });
+      await executeTool("session_list", { limit: 1 });
       // 默认使用第一个 agent 和 channel
       const newSessionKey: SessionKey = {
         gatewayId: currentGateway!.id,
@@ -76,14 +89,62 @@ function ChatScreen() {
     }
   };
 
+  // Custom renderer for AI messages with Markdown support
+  const renderAIContent = (content: string) => (
+    <XMarkdown
+      components={{
+        code: (props: any) => {
+          // Handle inline code
+          if (!props.className) {
+            return (
+              <code
+                {...props}
+                style={{
+                  background: 'rgba(0, 0, 0, 0.05)',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  fontSize: '0.9em',
+                }}
+              />
+            );
+          }
+          // Handle code blocks with syntax highlighting
+          const language = props.className?.replace('language-', '') || 'text';
+          return (
+            <SyntaxHighlighter
+              {...props}
+              style={atelierHeathLight}
+              language={language}
+              showLineNumbers
+              wrapLines
+              customStyle={{
+                borderRadius: '8px',
+                fontSize: '13px',
+                marginTop: '8px',
+                marginBottom: '8px',
+              }}
+            />
+          );
+        },
+      }}
+    >
+      {content}
+    </XMarkdown>
+  );
+
   // Convert messages to Bubble items
-  const bubbleItems: BubbleListProps["items"] = messages.map((msg: Message) => ({
-    key: msg.id,
-    role: msg.role === "user" ? "user" : "ai",
-    placement: msg.role === "user" ? "end" : "start",
-    content: msg.content.find((c) => c.type === "text")?.text || "",
-    avatar: msg.role === "user" ? null : <div style={{ background: "#1890ff", color: "#fff", borderRadius: "50%", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>AI</div>,
-  }));
+  const bubbleItems: BubbleListProps["items"] = messages.map((msg: Message) => {
+    const textContent = msg.content.find((c) => c.type === "text")?.text || "";
+    const isAI = msg.role === "assistant";
+
+    return {
+      key: msg.id,
+      role: msg.role === "user" ? "user" : "ai",
+      placement: msg.role === "user" ? "end" : "start",
+      content: isAI ? renderAIContent(textContent) : textContent,
+      avatar: msg.role === "user" ? null : <div style={{ background: "#1890ff", color: "#fff", borderRadius: "50%", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>AI</div>,
+    };
+  });
 
   if (!currentGateway) {
     return (
@@ -137,6 +198,7 @@ function ChatScreen() {
         onSubmit={handleSend}
         placeholder="Type a message..."
         loading={sending}
+        key={autoClear ? "cleared" : "normal"}
       />
     </div>
   );

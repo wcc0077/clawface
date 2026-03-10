@@ -17,6 +17,10 @@ import {
 const gatewayRepo = new LocalStorageGatewayRepository();
 const sessionRepo = new IndexedDBSessionRepository();
 const connection = new WebSocketGatewayConnection();
+
+// 设置 Session Repository 到 Connection，用于自动保存接收到的消息
+connection.setSessionRepository(sessionRepo);
+
 const messageService = new WebSocketMessageService(
   (method, params) => connection.request(method, params)
 );
