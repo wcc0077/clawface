@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { NavBar, PullToRefresh, Button } from "antd-mobile";
 import BubbleList from "@ant-design/x/es/bubble/BubbleList";
 import Sender from "@ant-design/x/es/sender";
@@ -38,9 +38,9 @@ function ChatScreen() {
     }
   }, []);
 
-  const handleStopThinking = () => {
+  const handleStopThinking = useCallback(() => {
     setIsThinking(false);
-  };
+  }, []);
 
   const { messages, loading } = useSessionMessages(currentSessionKey, handleStopThinking);
 
