@@ -1,0 +1,31 @@
+.tool-call-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 8px 16px;
+  background: #f5f5f5;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.status-icon {
+  font-size: 16px;
+}
+
+.tool-name {
+  font-weight: 600;
+  color: var(--van-primary-color);
+}
+
+.loading {
+  color: #999;
+}
+
+.result {
+  color: #4caf50;
+}
+
+.error {
+  color: #f44336;
+}

@@ -1,0 +1,7 @@
+.bottom-nav .adm-tab-bar {
+  height: auto;
+}
+
+.bottom-nav .adm-tab-bar-item {
+  flex-direction: column;
+}

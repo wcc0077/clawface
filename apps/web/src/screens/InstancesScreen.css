@@ -1,0 +1,114 @@
+.instances-screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.instances-screen .adm-nav-bar {
+  flex-shrink: 0;
+}
+
+.adm-list {
+  flex: 1;
+  padding-bottom: 20px;
+}
+
+.gateway-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.status.connected {
+  background: #e8f5e9;
+  color: #4caf50;
+}
+
+.status.disconnected {
+  background: #ffebee;
+  color: #f44336;
+}
+
+.status.connecting {
+  background: #fff3e0;
+  color: #ff9800;
+}
+
+.status.error {
+  background: #ffebee;
+  color: #f44336;
+}
+
+/* Modal styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 400px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid #eee;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #999;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  padding: 16px;
+  border-top: 1px solid #eee;
+}
+
+.modal-actions button {
+  flex: 1;
+}
+
+.add-gateway-form {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}

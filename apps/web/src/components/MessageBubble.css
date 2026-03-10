@@ -1,0 +1,49 @@
+.message-bubble {
+  max-width: 80%;
+  margin: 8px 16px;
+  padding: 12px;
+  border-radius: 12px;
+}
+
+.message-bubble.own {
+  align-self: flex-end;
+  background-color: var(--van-primary-color);
+  color: white;
+}
+
+.message-bubble.other {
+  align-self: flex-start;
+  background-color: #f5f5f5;
+  color: #333;
+}
+
+.message-role {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  opacity: 0.8;
+}
+
+.message-content {
+  word-break: break-word;
+}
+
+.message-text {
+  line-height: 1.5;
+}
+
+.message-image {
+  margin-bottom: 8px;
+}
+
+.message-image img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+.message-time {
+  font-size: 10px;
+  margin-top: 4px;
+  opacity: 0.7;
+  text-align: right;
+}

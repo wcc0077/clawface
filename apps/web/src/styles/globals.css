@@ -1,0 +1,61 @@
+:root {
+  --van-primary-color: #1976d2;
+  --van-primary-color-light: #2196f3;
+  --van-primary-color-dark: #1565c0;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+/* App layout */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app-content {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 60px; /* Space for fixed bottom nav */
+}
+
+/* Fixed bottom navigation */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: white;
+  border-top: 1px solid #eee;
+  z-index: 100;
+}
+
+/* 移动端优化 */
+button, a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+input, textarea {
+  font-size: 16px; /* 防止 iOS 缩放 */
+}

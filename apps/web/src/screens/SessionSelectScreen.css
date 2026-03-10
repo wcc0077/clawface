@@ -1,0 +1,9 @@
+.session-select-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.session-select-screen .van-nav-bar {
+  flex-shrink: 0;
+}

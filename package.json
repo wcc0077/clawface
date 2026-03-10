@@ -1,0 +1,23 @@
+{
+  "name": "openclaw-web",
+  "version": "0.0.1",
+  "description": "OpenClaw Mobile Web Application with DDD Architecture and Agent Support",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @openclaw/web dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "keywords": ["openclaw", "web", "ddd", "agent"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "packageManager": "pnpm@10.23.0",
+  "devDependencies": {
+    "vitest": "^4.0.18"
+  }
+}

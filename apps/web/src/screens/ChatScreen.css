@@ -1,0 +1,49 @@
+.chat-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.chat-screen .adm-nav-bar {
+  flex-shrink: 0;
+}
+
+.chat-screen-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  text-align: center;
+  padding: 24px;
+}
+
+.chat-screen-empty p {
+  margin: 8px 0;
+}
+
+.chat-screen-empty .adm-button {
+  margin-top: 16px;
+}
+
+.loading {
+  text-align: center;
+  padding: 16px;
+  color: #999;
+}
+
+/* Ant Design X BubbleList overrides */
+.chat-screen .ant-x-bubble-list {
+  padding: 16px;
+}
+
+.chat-screen .ant-x-bubble {
+  margin-bottom: 12px;
+}
+
+.chat-screen .ant-x-send-box {
+  border-top: 1px solid #eee;
+  padding: 8px 16px;
+  background: #fff;
+}

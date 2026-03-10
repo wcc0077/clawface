@@ -1,0 +1,28 @@
+{
+  "name": "@openclaw/web-infrastructure",
+  "version": "0.0.1",
+  "description": "OpenClaw Web Infrastructure Layer - Implementation details",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./connection": "./src/gateway-connection.impl.ts",
+    "./repositories": "./src/repositories.impl.ts",
+    "./message-service": "./src/message-service.impl.ts",
+    "./storage": "./src/storage/index.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "oxlint src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@openclaw/web-domain": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18",
+    "typescript": "^5.9.3"
+  }
+}
