@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { NavBar, PullToRefresh, Button } from "antd-mobile";
 import BubbleList from "@ant-design/x/es/bubble/BubbleList";
 import Sender from "@ant-design/x/es/sender";
@@ -9,8 +9,16 @@ import SyntaxHighlighter from "react-syntax-highlighter";
 import { atelierHeathLight } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import { useSessionMessages, useExecuteTool, useGatewayStatus } from "../hooks";
 import type { SessionKey, Message } from "@openclaw/web-domain";
+import { serializeSessionKey } from "@openclaw/web-domain";
 import "katex/dist/katex.min.css";
 import "./ChatScreen.css";
+
+// AI avatar component
+const AI_AVATAR = (
+  <div style={{ background: "#1890ff", color: "#fff", borderRadius: "50%", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>
+    AI
+  </div>
+);
 
 function ChatScreen() {
   const executeTool = useExecuteTool();
@@ -44,7 +52,7 @@ function ChatScreen() {
 
   const { messages, loading } = useSessionMessages(currentSessionKey, handleStopThinking);
 
-  // Auto scroll to bottom when messages change or sending state changes
+  // Auto scroll to bottom when new messages arrive
   useEffect(() => {
     const scrollToBottom = () => {
       requestAnimationFrame(() => {
@@ -59,7 +67,7 @@ function ChatScreen() {
       scrollToBottom();
     }
     lastMessageCount.current = messages.length;
-  }, [messages.length, isThinking]);
+  }, [messages.length]);
 
   const handleSend: SenderProps["onSubmit"] = async (data) => {
     if (!currentSessionKey) {
@@ -117,7 +125,7 @@ function ChatScreen() {
   };
 
   // Custom renderer for AI messages with Markdown support
-  const renderAIContent = (content: string) => (
+  const renderAIContent = useCallback((content: string) => (
     <XMarkdown
       components={{
         code: (props: any) => {
@@ -157,10 +165,10 @@ function ChatScreen() {
     >
       {content}
     </XMarkdown>
-  );
+  ), []);
 
-  // Convert messages to Bubble items
-  const bubbleItems: BubbleListProps["items"] = [
+  // Convert messages to Bubble items - memoized for performance
+  const bubbleItems: BubbleListProps["items"] = useMemo(() => [
     ...messages.map((msg: Message) => {
       const textContent = msg.content.find((c) => c.type === "text")?.text || "";
       const isAI = msg.role === "assistant";
@@ -170,7 +178,7 @@ function ChatScreen() {
         role: msg.role === "user" ? "user" : "ai",
         placement: msg.role === "user" ? ("end" as const) : ("start" as const),
         content: isAI ? renderAIContent(textContent) : textContent,
-        avatar: msg.role === "user" ? null : <div style={{ background: "#1890ff", color: "#fff", borderRadius: "50%", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>AI</div>,
+        avatar: msg.role === "user" ? null : AI_AVATAR,
       };
     }),
     // Add thinking indicator when AI is processing
@@ -185,9 +193,9 @@ function ChatScreen() {
           <span className="thinking-dot"></span>
         </div>
       ),
-      avatar: <div style={{ background: "#1890ff", color: "#fff", borderRadius: "50%", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>AI</div>,
+      avatar: AI_AVATAR,
     }] : []),
-  ];
+  ], [messages, isThinking, loading, renderAIContent]);
 
   if (!currentGateway) {
     return (
@@ -248,10 +256,6 @@ function ChatScreen() {
       />
     </div>
   );
-}
-
-function serializeSessionKey(key: SessionKey): string {
-  return `${key.gatewayId}:${key.agentId}:${key.channelId}`;
 }
 
 export default ChatScreen;

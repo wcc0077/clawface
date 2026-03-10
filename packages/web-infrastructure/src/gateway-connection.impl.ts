@@ -13,21 +13,6 @@ type DeviceIdentity = {
   privateKey: string; // Base64Url 编码的 PKCS#8 私钥
 };
 
-/**
- * 降级方案：生成随机设备 ID（当 crypto.subtle 不可用时）
- */
-function generateFallbackDeviceId(): string {
-  const bytes = new Uint8Array(32);
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    crypto.getRandomValues(bytes);
-  } else {
-    for (let i = 0; i < bytes.length; i++) {
-      bytes[i] = Math.floor(Math.random() * 256);
-    }
-  }
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 async function getOrCreateDeviceIdentity(): Promise<DeviceIdentity> {
   const STORAGE_KEY = "openclaw_device_identity";
 
@@ -47,15 +32,12 @@ async function getOrCreateDeviceIdentity(): Promise<DeviceIdentity> {
   // 注意：Ed25519 在 Chrome 113+ 支持
   // 检查 crypto.subtle 是否可用（需要 HTTPS 或 localhost）
   if (!window.crypto?.subtle) {
-    console.warn('[getOrCreateDeviceIdentity] crypto.subtle not available, using fallback');
-    // 降级方案：生成随机设备 ID
-    const fallbackIdentity: DeviceIdentity = {
-      deviceId: generateFallbackDeviceId(),
-      publicKey: "fallback-key",
-      privateKey: "fallback-key",
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(fallbackIdentity));
-    return fallbackIdentity;
+    console.error('[getOrCreateDeviceIdentity] crypto.subtle not available - requires HTTPS or localhost context');
+    throw new Error(
+      'Web Crypto API (crypto.subtle) is not available. ' +
+      'This feature requires a secure context (HTTPS or localhost). ' +
+      'Device identity generation cannot proceed.'
+    );
   }
 
   const keyPair = await window.crypto.subtle.generateKey(
@@ -438,7 +420,8 @@ export class WebSocketGatewayConnection implements GatewayConnectionService {
       this.ws.onopen = () => {
         // 等待 connect.challenge 事件，不主动发送 connect
         // 设置超时，如果 5 秒内没有收到 challenge，认为不支持 challenge 流程
-        setTimeout(() => {
+        this.connectFallbackTimer = setTimeout(() => {
+          this.connectFallbackTimer = null;
           if (!this.connectNonce && !this.connectSent) {
             this.doSendConnect(gateway.auth, identity);
           }
@@ -450,6 +433,7 @@ export class WebSocketGatewayConnection implements GatewayConnectionService {
         if (frame) {
           // 处理 connect.challenge 事件
           if (frame.type === "event" && frame.event === "connect.challenge") {
+            this.clearConnectFallback(); // Clear fallback timer when challenge arrives
             await this.handleConnectChallenge(frame.payload as { nonce?: unknown }, gateway.auth, identity);
             return;
           }
@@ -503,6 +487,10 @@ export class WebSocketGatewayConnection implements GatewayConnectionService {
     this.currentGateway = null;
     this.statusSubject.next("disconnected");
     this.currentGatewaySubject.next(null);
+
+    // Stop pairing poll timer and connect fallback timer to prevent memory leaks
+    this.stopPairingPoll();
+    this.clearConnectFallback();
 
     // Reject all pending requests
     for (const [id, pending] of this.pendingRequests.entries()) {
@@ -593,6 +581,14 @@ export class WebSocketGatewayConnection implements GatewayConnectionService {
    */
   private connectNonce: string | null = null;
   private connectSent = false;
+  private connectFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private clearConnectFallback(): void {
+    if (this.connectFallbackTimer) {
+      clearTimeout(this.connectFallbackTimer);
+      this.connectFallbackTimer = null;
+    }
+  }
 
   private async doSendConnect(
     auth: { deviceId: string; token?: string; password?: string },
