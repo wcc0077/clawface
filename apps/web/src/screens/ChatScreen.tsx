@@ -18,7 +18,10 @@ function ChatScreen() {
   const [currentSessionKey, setCurrentSessionKey] = useState<SessionKey | null>(null);
   const [sending, setSending] = useState(false);
   const [autoClear, setAutoClear] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const bubbleListRef = useRef<HTMLDivElement>(null);
+  const lastMessageCount = useRef(0);
 
   // Load current session from localStorage
   useEffect(() => {
@@ -35,7 +38,28 @@ function ChatScreen() {
     }
   }, []);
 
-  const { messages, loading } = useSessionMessages(currentSessionKey);
+  const handleStopThinking = () => {
+    setIsThinking(false);
+  };
+
+  const { messages, loading } = useSessionMessages(currentSessionKey, handleStopThinking);
+
+  // Auto scroll to bottom when messages change or sending state changes
+  useEffect(() => {
+    const scrollToBottom = () => {
+      requestAnimationFrame(() => {
+        if (bubbleListRef.current) {
+          bubbleListRef.current.scrollTop = bubbleListRef.current.scrollHeight;
+        }
+      });
+    };
+
+    // Scroll when new messages arrive
+    if (messages.length > lastMessageCount.current) {
+      scrollToBottom();
+    }
+    lastMessageCount.current = messages.length;
+  }, [messages.length, isThinking]);
 
   const handleSend: SenderProps["onSubmit"] = async (data) => {
     if (!currentSessionKey) {
@@ -51,6 +75,7 @@ function ChatScreen() {
     }
 
     setSending(true);
+    setIsThinking(true);
 
     try {
       await executeTool("session_send", {
@@ -64,6 +89,8 @@ function ChatScreen() {
       alert(`Failed to send message: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setSending(false);
+      // Don't hide thinking state immediately - wait for AI response
+      // setIsThinking(false);
     }
   };
 
@@ -133,18 +160,34 @@ function ChatScreen() {
   );
 
   // Convert messages to Bubble items
-  const bubbleItems: BubbleListProps["items"] = messages.map((msg: Message) => {
-    const textContent = msg.content.find((c) => c.type === "text")?.text || "";
-    const isAI = msg.role === "assistant";
+  const bubbleItems: BubbleListProps["items"] = [
+    ...messages.map((msg: Message) => {
+      const textContent = msg.content.find((c) => c.type === "text")?.text || "";
+      const isAI = msg.role === "assistant";
 
-    return {
-      key: msg.id,
-      role: msg.role === "user" ? "user" : "ai",
-      placement: msg.role === "user" ? "end" : "start",
-      content: isAI ? renderAIContent(textContent) : textContent,
-      avatar: msg.role === "user" ? null : <div style={{ background: "#1890ff", color: "#fff", borderRadius: "50%", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>AI</div>,
-    };
-  });
+      return {
+        key: msg.id,
+        role: msg.role === "user" ? "user" : "ai",
+        placement: msg.role === "user" ? ("end" as const) : ("start" as const),
+        content: isAI ? renderAIContent(textContent) : textContent,
+        avatar: msg.role === "user" ? null : <div style={{ background: "#1890ff", color: "#fff", borderRadius: "50%", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>AI</div>,
+      };
+    }),
+    // Add thinking indicator when AI is processing
+    ...(isThinking && !loading ? [{
+      key: 'thinking',
+      role: 'ai' as const,
+      placement: 'start' as const,
+      content: (
+        <div className="thinking-indicator">
+          <span className="thinking-dot"></span>
+          <span className="thinking-dot"></span>
+          <span className="thinking-dot"></span>
+        </div>
+      ),
+      avatar: <div style={{ background: "#1890ff", color: "#fff", borderRadius: "50%", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>AI</div>,
+    }] : []),
+  ];
 
   if (!currentGateway) {
     return (
@@ -179,7 +222,10 @@ function ChatScreen() {
     <div className="chat-screen" ref={containerRef}>
       <NavBar back={null}>{currentGateway?.name || "Chat"}</NavBar>
       <PullToRefresh onRefresh={handleRefresh}>
-        <div style={{ height: "calc(100vh - 140px)", overflow: "auto" }}>
+        <div
+          ref={bubbleListRef}
+          style={{ height: "calc(100vh - 140px)", overflow: "auto" }}
+        >
           {loading ? (
             <div className="loading">Loading messages...</div>
           ) : (
