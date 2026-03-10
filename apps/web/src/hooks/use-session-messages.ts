@@ -9,7 +9,8 @@ export function useSessionMessages(sessionKey: SessionKey | null, onFirstAIRespo
   const container = useDIContainer();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
-  const hasReceivedAIResponse = useRef(false);
+  const lastMessageId = useRef<string | null>(null);
+  const hasInitialized = useRef(false);
 
   useEffect(() => {
     if (!sessionKey) {
@@ -19,18 +20,31 @@ export function useSessionMessages(sessionKey: SessionKey | null, onFirstAIRespo
     }
 
     setLoading(true);
-    hasReceivedAIResponse.current = false;
+    hasInitialized.current = false;
+    lastMessageId.current = null;
 
     // 订阅消息变化
     const unsubscribe = container.sessionRepo.observeMessages(sessionKey).subscribe((newMessages: Message[]) => {
       setMessages(newMessages);
       setLoading(false);
 
-      // Detect first AI response after user sent a message
-      const hasAIMessage = newMessages.some(msg => msg.role === "assistant");
-      if (hasAIMessage && !hasReceivedAIResponse.current && onFirstAIResponse) {
-        hasReceivedAIResponse.current = true;
-        onFirstAIResponse();
+      // 初始化时记录最后一条消息 ID，不触发回调
+      if (!hasInitialized.current) {
+        hasInitialized.current = true;
+        const lastMsg = newMessages[newMessages.length - 1];
+        if (lastMsg) {
+          lastMessageId.current = lastMsg.id;
+        }
+        return;
+      }
+
+      // 检测新的 AI 消息
+      const lastMsg = newMessages[newMessages.length - 1];
+      if (lastMsg && lastMsg.role === "assistant" && lastMsg.id !== lastMessageId.current) {
+        lastMessageId.current = lastMsg.id;
+        if (onFirstAIResponse) {
+          onFirstAIResponse();
+        }
       }
     });
 
