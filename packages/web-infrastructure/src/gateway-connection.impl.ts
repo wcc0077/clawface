@@ -229,14 +229,31 @@ export class WebSocketGatewayConnection implements GatewayConnectionService {
       ? content.map(c => (c as Record<string, unknown>).text as string).filter(Boolean).join('')
       : '';
 
+    // 检查是否是 final 状态
+    const state = payloadObj.state as string | undefined;
+    const isFinal = state === 'final';
+
     if (existingMessageIndex >= 0 && newText) {
-      // 更新现有消息 - 追加内容
+      // 更新现有消息
       const existingMsg = session.messages[existingMessageIndex];
       const existingText = existingMsg.content.find(c => c.type === 'text')?.text || '';
 
+      // 如果是 final 或者 newText 比 existingText 长，说明是新内容，需要替换/追加
+      // 如果 newText 包含 existingText，说明是完整内容，直接替换
+      // 如果 newText 不包含 existingText，说明是增量内容，需要追加
+      let finalText = newText;
+      if (!isFinal && newText.length > existingText.length && newText.includes(existingText)) {
+        //  newText 包含 existingText，说明是累积更新，但后端返回的是完整内容
+        // 这种情况下，直接使用 newText（已经是完整内容）
+        finalText = newText;
+      } else if (!isFinal && newText.length <= existingText.length) {
+        // newText 比 existingText 短或相等，可能是重复推送，保留原有内容
+        finalText = existingText;
+      }
+
       session.messages[existingMessageIndex] = {
         ...existingMsg,
-        content: [{ type: 'text', text: existingText + newText }],
+        content: [{ type: 'text', text: finalText }],
         timestamp: Date.now(),
       };
     } else if (newText) {
