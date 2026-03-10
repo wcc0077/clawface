@@ -13,6 +13,21 @@ type DeviceIdentity = {
   privateKey: string; // Base64Url 编码的 PKCS#8 私钥
 };
 
+/**
+ * 降级方案：生成随机设备 ID（当 crypto.subtle 不可用时）
+ */
+function generateFallbackDeviceId(): string {
+  const bytes = new Uint8Array(32);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 async function getOrCreateDeviceIdentity(): Promise<DeviceIdentity> {
   const STORAGE_KEY = "openclaw_device_identity";
 
@@ -30,6 +45,19 @@ async function getOrCreateDeviceIdentity(): Promise<DeviceIdentity> {
 
   // 生成 Ed25519 密钥对（使用 Web Crypto API）
   // 注意：Ed25519 在 Chrome 113+ 支持
+  // 检查 crypto.subtle 是否可用（需要 HTTPS 或 localhost）
+  if (!window.crypto?.subtle) {
+    console.warn('[getOrCreateDeviceIdentity] crypto.subtle not available, using fallback');
+    // 降级方案：生成随机设备 ID
+    const fallbackIdentity: DeviceIdentity = {
+      deviceId: generateFallbackDeviceId(),
+      publicKey: "fallback-key",
+      privateKey: "fallback-key",
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(fallbackIdentity));
+    return fallbackIdentity;
+  }
+
   const keyPair = await window.crypto.subtle.generateKey(
     {
       name: "Ed25519",
